@@ -105,20 +105,12 @@ def over_eighteen_markup():
 
 	return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def living_perm_krai_markup():
-	buttons = []
-
-	buttons.append([InlineKeyboardButton(text='Да, есть постоянная регистрация', callback_data='living_yes_1')])
-	buttons.append([InlineKeyboardButton(text='Преимущественно проживаю, нет постоянной регистрации', callback_data='living_yes_2')])
-	buttons.append([InlineKeyboardButton(text='Нет, не проживаю', callback_data='living_no')])
-
-	return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def future_member_markup():
 	buttons = []
 
 	buttons.append([InlineKeyboardButton(text='Хочу вступить в партию', callback_data='future_member')])
-	buttons.append([InlineKeyboardButton(text='Хочу остаться сторонником (необходимо будет подписать заявление сторонника)', callback_data='future_follower')])
+	buttons.append([InlineKeyboardButton(text='Хочу остаться сторонником', callback_data='future_follower')])
 
 	return InlineKeyboardMarkup(inline_keyboard=buttons)
 

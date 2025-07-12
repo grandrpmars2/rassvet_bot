@@ -14,7 +14,7 @@ from aiogram.enums.parse_mode import ParseMode
 from config import BOT_TOKEN, SAVE_MESSAGE
 from sql import start_db
 from filters import AdminFilter, ChatFilter, ReplyFilter
-from kb import beginning_keyboard, activities_keyboard, over_eighteen_markup, living_perm_krai_markup, future_member_markup, send_anketa, back_to_beginning_keybiard, soglasie_markup
+from kb import beginning_keyboard, activities_keyboard, over_eighteen_markup, future_member_markup, send_anketa, back_to_beginning_keybiard, soglasie_markup
 from message_generators import new_message_to_admin_group, format_anketa, new_anketa_to_admin_group, new_connect_to_admin_group
 
 class BotStates(StatesGroup):
@@ -22,18 +22,28 @@ class BotStates(StatesGroup):
 	entering_hi_message = State() # Состояние ввода приветственного сообщения
 
 	priemnaya = State()
+	problem_naming = State()
+	problem_description = State()
+	problem_place = State()
+
 	chatting = State()
 	anketa_storonnika = State()
 	entering_email = State()
 	entering_fio = State()
 	entering_tg_username = State()
 	entering_phone_number = State()
+	registration = State()
 	living_town = State()
 	social_media = State()
 	additional_info = State()
 	soglasie_na_obrabotku = State()
 
 	entering_other_activity = State()
+
+	member_fio = State()
+	member_birthday = State()
+	member_skills = State()
+
 
 	other_question = State()
 	chatting_in_other_question = State()
@@ -73,13 +83,27 @@ async def hi_message(message: types.Message, state: FSMContext):
 	ChatFilter(block_basic_functions_in_admin_chat=True)
 )
 async def social_priemnaya(message: types.Message, state: FSMContext):
-	await message.answer('Что у вас случилось? Опишите ситуацию.')
-	await state.set_state(BotStates.priemnaya)
+	await message.answer('Как к Вам можно обращаться?')
+	await state.set_state(BotStates.problem_naming)
 
-@router.message(BotStates.priemnaya)
+@router.message(BotStates.problem_naming)
+async def entering_problem_naming(message: types.Message, state: FSMContext):
+	await state.update_data(problem_naming=message.text)
+	await message.answer('Что у вас случилось? Опишите ситуацию.')
+	await state.set_state(BotStates.problem_description)
+
+@router.message(BotStates.problem_description)
+async def entering_problem_naming(message: types.Message, state: FSMContext):
+	await state.update_data(problem_description=message.text)
+	await message.answer('Где актуальна эта проблема? Напишите место (населенный пункт, район)')
+	await state.set_state(BotStates.problem_place)
+
+@router.message(BotStates.problem_place)
 async def social_priemnaya_second(message: types.Message, state: FSMContext):
-	await new_message_to_admin_group(message, bot)
-	await message.answer('Ваше обращение принято! Мы постараемся Вам помочь. \n Сейчас вы находитесь в режиме чата с администратором. Он свяжется с Вами и задаст уточняющие вопросы. Все отправленные сообщения будут доставлены администратору. Чтобы вернуться в меню, введите /start')
+	await state.update_data(problem_place=message.text)
+	state_data = await state.get_data()
+	await new_message_to_admin_group(message, bot, state=state_data)
+	await message.answer('Ваше обращение принято! Мы постараемся Вам помочь. \n Сейчас вы находитесь в режиме чата с администратором. Он свяжется с Вами и задаст уточняющие вопросы. Все отправленные сообщения будут доставлены ему.\n\n<b>Также вы можете отправить все необходимые файлы и фотографии.</b>\n\nЧтобы вернуться в меню, введите /start')
 	await state.set_state(BotStates.chatting)
 
 @router.message(BotStates.chatting)
@@ -87,6 +111,9 @@ async def chatting_in_priemnaya(message: types.Message, state: FSMContext):
 	await new_message_to_admin_group(message, bot)
 
 # Стать сторонником
+'''
+member : FIO 020202 skills email +89
+'''
 @router.message(
 	F.text == 'Стать сторонником',
 	StateFilter(None),
@@ -94,17 +121,53 @@ async def chatting_in_priemnaya(message: types.Message, state: FSMContext):
 )
 async def social_priemnaya(message: types.Message, state: FSMContext):
 	await message.answer_photo(photo=types.FSInputFile('rassvet.png'), caption='<b>Присоединяйтесь к сторонникам Политической партии "Рассвет" в Пермском крае!</b>\n\nМы ищем неравнодушных граждан, желающих сделать свой город и край лучше!\nЕсли у вас есть идеи, мысли или проекты, которые вы хотели бы обсудить и реализовать вместе с нами, или же вы давно хотели стать частью нашей команды, присоединяйтесь!\n\nВнимательно заполните форму. После её проверки мы сразу же ответим вам!')
-	await message.answer('Введите ваш email: ')
+	
+	markup = future_member_markup()
+	await bot.send_message(message.chat.id, 'Хотели бы вы стать членом будущей партии? Необходимо будет подписать соответствующее заявление.', reply_markup=markup)
+	
+@router.callback_query(lambda c: c.data.startswith(('future_')))
+async def future_member_answer(callback_query: types.CallbackQuery, state: FSMContext):
+	answer = callback_query.data
+	await state.update_data(future=answer)
+	if answer == 'future_follower':
+		await callback_query.message.answer('Введите ваш email:\n<i>Необязательно</i>')
+		await state.set_state(BotStates.entering_email)
+	elif answer == 'future_member':
+		await callback_query.message.answer('Укажите Ваше ФИО')
+		await state.set_state(BotStates.member_fio)
+
+@router.message(BotStates.member_fio)
+async def future_member_fio(message: types.Message, state: FSMContext):
+	answer = message.text
+	await state.update_data(member_fio = answer)
+
+	await message.answer('Укажите Вашу дату рождения')
+	await state.set_state(BotStates.member_birthday)
+
+@router.message(BotStates.member_birthday)
+async def future_member_fio(message: types.Message, state: FSMContext):
+	answer = message.text
+	await state.update_data(member_birthday = answer)
+
+	await message.answer('Какие у Вас есть навыки, умения?')
+	await state.set_state(BotStates.member_skills)
+
+@router.message(BotStates.member_skills)
+async def future_member_skills(message: types.Message, state: FSMContext):
+	answer = message.text
+	await state.update_data(member_skills = answer)
+
+	await message.answer('Введите ваш email:')
 	await state.set_state(BotStates.entering_email)
 
 @router.message(BotStates.entering_email)
-async def social_priemnaya(message: types.Message, state: FSMContext):
+async def entering_email_answer(message: types.Message, state: FSMContext):
 	await state.update_data(email=message.text)
 	await state.update_data(activity1=0, activity2=0, activity3=0, activity4=0, activity5=0, activity6=0, activity7=0, activity8=0)
 
 	state_data = await state.get_data()
 	kb = activities_keyboard(state_data)
-	await message.answer('Чем вы хотели бы заниматься, будучи сторонником? В каких проектах хотели бы участвовать?', reply_markup=kb)
+	await message.answer('Чем вы хотели бы заниматься, будучи сторонником/членом партии? В каких проектах хотели бы участвовать? Выберите все интересуюзие направления и нажмите Далее →', reply_markup=kb)
 
 @router.callback_query(lambda c: c.data.startswith(('activity')))
 async def activity1(callback_query: types.CallbackQuery, state: FSMContext):
@@ -141,21 +204,31 @@ async def activity1(callback_query: types.CallbackQuery, state: FSMContext):
 	await callback_query.message.edit_reply_markup(reply_markup = new_markup)
 
 @router.callback_query(lambda c: c.data.startswith(('next')))
-async def activity1(callback_query: types.CallbackQuery, state: FSMContext):
+async def activity2(callback_query: types.CallbackQuery, state: FSMContext):
 	state_data = await state.get_data()
 	if state_data['activity8'] == 1:
 		await bot.send_message(callback_query.message.chat.id, text='Напишите то, чем хотите заниматься')
 		await state.set_state(BotStates.entering_other_activity)
 	else:
-		await bot.send_message(callback_query.message.chat.id, text='Укажите Ваше ФИО')
-		await state.set_state(BotStates.entering_fio)
+		status = await state.get_data()
+		if status['future'] == 'future_member':
+			await bot.send_message(callback_query.message.chat.id, text='Укажите Ваш ник в Telegram')
+			await state.set_state(BotStates.entering_tg_username)
+		else:
+			await bot.send_message(callback_query.message.chat.id, text='Как к Вам можно обращаться?')
+			await state.set_state(BotStates.entering_fio)
 
 @router.message(BotStates.entering_other_activity)
 async def entering_fio(message: types.Message, state: FSMContext):
 	await state.update_data(activity8 = message.text)
 
-	await bot.send_message(message.chat.id, text='Укажите Ваше ФИО')
-	await state.set_state(BotStates.entering_fio)
+	status = await state.get_data()
+	if status['future'] == 'future_member':
+		await bot.send_message(message.chat.id, text='Укажите Ваш ник в Telegram')
+		await state.set_state(BotStates.entering_tg_username)
+	else:
+		await bot.send_message(message.chat.id, text='Как к Вам можно обращаться?')
+		await state.set_state(BotStates.entering_fio)
 
 @router.message(BotStates.entering_fio)
 async def entering_tg(message: types.Message, state: FSMContext):
@@ -168,7 +241,11 @@ async def entering_tg(message: types.Message, state: FSMContext):
 async def entering_phone(message: types.Message, state: FSMContext):
 	await state.update_data(tg = message.text)
 
-	await bot.send_message(message.chat.id, text='Укажите Ваш номер телефона')
+	status = await state.get_data()
+	if status['future'] == 'future_member':
+		await bot.send_message(message.chat.id, text='Укажите Ваш номер телефона')
+	else:
+		await bot.send_message(message.chat.id, text='Укажите Ваш номер телефона\n<i>Необязательно</i>')
 	await state.set_state(BotStates.entering_phone_number)
 
 @router.message(BotStates.entering_phone_number)
@@ -183,15 +260,15 @@ async def eighteen_answer(callback_query: types.CallbackQuery, state: FSMContext
 	answer = callback_query.data
 	await state.update_data(eighteen=answer)
 
-	markup = living_perm_krai_markup()
-	await bot.send_message(callback_query.message.chat.id, 'Проживаете ли Вы постоянно в Пермском крае?', reply_markup=markup)
+	await bot.send_message(callback_query.message.chat.id, 'В каком регионе у Вас есть постоянная регистрация?')
+	await state.set_state(BotStates.registration)
 
-@router.callback_query(lambda c: c.data.startswith(('living_')))
-async def living_perm_krai_answer(callback_query: types.CallbackQuery, state: FSMContext):
-	answer = callback_query.data
-	await state.update_data(living_perm_krai=answer)
+@router.message(BotStates.registration)
+async def living_perm_krai_answer(message: types.Message, state: FSMContext):
+	answer = message.text
+	await state.update_data(registration=answer)
 
-	await bot.send_message(callback_query.message.chat.id, 'В каком городе вы проживаете?')
+	await bot.send_message(message.chat.id, 'В каком городе вы проживаете?')
 	await state.set_state(BotStates.living_town)
 
 @router.message(BotStates.living_town)
@@ -199,15 +276,7 @@ async def living_town_answer(message: types.Message, state: FSMContext):
 	answer = message.text
 	await state.update_data(town=answer)
 
-	markup = future_member_markup()
-	await bot.send_message(message.chat.id, 'Хотели бы вы стать членом будущей партии? Необходимо будет подписать соответствующее заявление.', reply_markup=markup)
-
-@router.callback_query(lambda c: c.data.startswith(('future_')))
-async def future_member_answer(callback_query: types.CallbackQuery, state: FSMContext):
-	answer = callback_query.data
-	await state.update_data(future=answer)
-
-	await bot.send_message(callback_query.message.chat.id, 'Укажите ссылки на другие ваши соц.сети')
+	await bot.send_message(message.chat.id, 'Укажите ссылки на другие ваши соц.сети')
 	await state.set_state(BotStates.social_media)
 
 @router.message(BotStates.social_media)
@@ -224,15 +293,12 @@ async def additional_info_answer(message: types.Message, state: FSMContext):
 	await state.update_data(additional_info=answer)
 
 	markup = soglasie_markup()
-	#media = types.MediaGroup()
-	#file1 = types.input_media_document.InputMediaDocument()
-	#file2 = types.input_media_document.InputMediaDocument(open('Сведения о реализуемых требованиях к защите персональных данных.pdf', 'rb'))
 	file = types.input_file.FSInputFile('Акт оценки вреда субъектам персональных данных.pdf')
 	file2 = types.input_file.FSInputFile('Сведения о реализуемых требованиях к защите персональных данных.pdf')
 
-	await bot.send_message(message.chat.id, '<b>Согласие на обработку персональных данных</b>\n\nМы находимся на территории Российской Федерации и соблюдаем ее законы, в частности законодательство о персональных данных, поэтому нам необходимо получить Ваше согласие на их обработку. Все данные хранятся в зашифрованном виде. Некоторые документы для изучения прикреплены к этому сообщению.\n\nВы имеете право отозвать согласие на обработку персональных данных. Для этого свяжитесь с нами и отправьте письменное заявление. \n\n<b>Текст согласия:</b>\nастоящим в соответствии с Федеральным законом № 152-ФЗ «О персональных данных» от 27.07.2006 даю Оглоблину Алексею Александровичу согласие на автоматизированную и неавтоматизированную обработку персональных данных, указанных мной в анкете: сбор, систематизацию, накопление, хранение, уточнение (обновление, изменение), использование, уничтожение.\n\nНастоящее согласие распространяется на следующие персональные данные: фамилия, имя и отчество, контактный телефон, адрес электронной почты, город проживания, сведения о страницах в социальных сетях, а также другие персональные данные, сообщенные мной дополнительно.', reply_markup = markup)
 	await bot.send_document(message.chat.id, file)
 	await bot.send_document(message.chat.id, file2)
+	await bot.send_message(message.chat.id, '<b>Согласие на обработку персональных данных</b>\n\nМы находимся на территории Российской Федерации и соблюдаем ее законы, в частности законодательство о персональных данных, поэтому нам необходимо получить Ваше согласие на их обработку. Все данные хранятся в зашифрованном виде. Некоторые документы для изучения прикреплены к этому сообщению.\n\nВы имеете право отозвать согласие на обработку персональных данных. Для этого свяжитесь с нами и отправьте письменное заявление. \n\n<b>Текст согласия:</b>\nНастоящим в соответствии с Федеральным законом № 152-ФЗ «О персональных данных» от 27.07.2006 даю Оглоблину Алексею Александровичу согласие на автоматизированную и неавтоматизированную обработку персональных данных, указанных мной в анкете: сбор, систематизацию, накопление, хранение, уточнение (обновление, изменение), использование, уничтожение.\n\nНастоящее согласие распространяется на следующие персональные данные: фамилия, имя и отчество, контактный телефон, адрес электронной почты, город проживания, сведения о страницах в социальных сетях, а также другие персональные данные, сообщенные мной дополнительно.', reply_markup = markup)
 	await state.set_state(BotStates.additional_info)
 
 
